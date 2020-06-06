@@ -1,0 +1,17 @@
+dist/
+build/
+*.egg-info/
+__pycache__/
+.DS_Store/
+.vscode/
+*.swp
+*.swo
+*.npy
+*.png
+nohup.out
+
+data/
+logs/
+checkpoints/
+**/assets/
+experiments/*/
