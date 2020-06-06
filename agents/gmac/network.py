@@ -1,12 +1,9 @@
-from utils.distributions import (CategoricalHead, MixtureGaussianHead,
+fom utils.distributions import (CategoricalHead, MixtureGaussianHead,
                                  DiagGaussianHead, ScalarHead, MixedDist)
 from agents.a2c.network import ActorCritic, MLP
 
-# import torch.nn as nn
-# import torch.nn.functional as F
 
-
-class MGAC(ActorCritic):
+class GMAC(ActorCritic):
     def __init__(self, input_shape, n_actions, min_var=0.0, **kwargs):
         super().__init__(input_shape, n_actions, min_var=min_var, **kwargs)
         if len(input_shape) == 1:
@@ -22,20 +19,10 @@ class MGAC(ActorCritic):
                                            min_var=min_var,
                                            lim=self.ac_space)
             self.action_head = action_head
-            # self.action_head = nn.Sequential(
-            #     nn.Linear(self.enc_size, self.enc_size),
-            #     nn.ReLU(),
-            #     action_head)
 
         value_head = MixtureGaussianHead(self.enc_size, 1, n_mix=5,
                                          min_var=min_var)
         self.value_head = value_head
-        # self.value_head = nn.Sequential(
-        #     nn.Linear(self.enc_size, self.enc_size),
-        #     nn.ReLU(),
-        #     value_head)
-
-        # self.ivalue_head = ScalarHead(self.enc_size, 1)
         self.intrinsic = hasattr(self, 'ivalue_head')
 
         self._init_params()

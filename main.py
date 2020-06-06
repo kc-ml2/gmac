@@ -55,41 +55,21 @@ def ppo(args):
     train(args, 'PPOAgent', 'ppo')
 
 
-def acktr(args):
-    train(args, 'ACKTRAgent', 'acktr')
-
-
-def acer(args):
-    train(args, 'ACERAgent', 'acer')
-
-
 def iqpg(args):
-    train(args, 'IQPGAgent', 'iqpg')
+    train(args, 'IQACAgent', 'iqac')
 
 
 def iqpg_energy(args):
-    train(args, 'EIQPGAgent', 'iqpg')
+    train(args, 'IQACEAgent', 'iqace')
 
 
 def mogpg(args):
-    train(args, 'MGPGAgent', 'mogpg')
-
-
-def mogpg_a2c(args):
-    train(args, 'M2CAgent', 'mogpg')
-
-
-def mogpg_acktr(args):
-    train(args, 'MCKTRAgent', 'mogpg')
-
-
-def sac(args):
-    train(args, 'SACAgent', 'sac')
+    train(args, 'GMACAgent', 'gmac')
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(
-        description="Hierarchy Induced from Data Embeddings"
+        description="Distributional Perspective on Actor-Critic"
     )
     parser.add_argument("--load_config", type=str)
     parser.add_argument("--tag", type=str)
@@ -133,12 +113,7 @@ if __name__ == "__main__":
 
     if args.exp:
         if args.env == 'atari' or args.env == 'bullet':
-            if 'acktr' in args.mode:
-                config = args.env + '_acktr'
-            elif 'a2c' in args.mode:
-                config = args.env + '_a2c'
-            else:
-                config = args.env
+            config = args.env
             default_values = getattr(defaults, config)()
             for k, v in default_values.items():
                 setattr(args, k, v)

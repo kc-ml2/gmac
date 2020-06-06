@@ -4,12 +4,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import settings
-from utils.common import save_model, load_model, safemean, ReturnFilter
+from utils.common import save_model, load_model, safemean
 from agents.a2c.train import A2CAgent
-from agents.mogpg.network import MGAC
-from agents.acktr.kfac import KFACOptimizer
+from agents.gmac.network import GMAC
 from torch.distributions import Bernoulli, Normal, Categorical
-from utils.loss import Cramer, sample_cramer
+from utils.loss import Cramer
 from utils.summary import EvaluationMetrics
 
 import matplotlib
@@ -19,46 +18,11 @@ matplotlib.use('Agg')
 sns.set(style="white", palette="muted", color_codes=True)
 
 
-__all__ = ['MGPGAgent', 'M2CAgent', 'MCKTRAgent']
+__all__ = ['GMACAgent']
 
 
-def logmod(x):
-    return torch.sign(x) * torch.log(x.abs() + 1.0)
-
-
-def lt_mean(mu, sig, w, a=None):
-    if a is not None:
-        pass
-    else:
-        a = (mu * w).sum(-1, keepdim=True)
-    std_dist = Normal(0, 1)
-    alpha = (a - mu) / (sig + 1e-8)
-    phi = torch.exp(std_dist.log_prob(alpha))
-    z = 1.0 - phi
-    # tg = torch.sum(w * (z * mu + sig * phi - z * a), dim=-1, keepdim=True)
-    tg = torch.sum(w * (mu + sig * phi / z), dim=-1, keepdim=True)
-    return tg
-
-
-def truncated(x, beta=0.5):
-    mean_x = x.mean(-1, keepdim=True)
-    mask = (x >= mean_x).float()
-    mask_sum = mask.sum(-1, keepdim=True)
-    mask_sum = torch.where(mask_sum == 0, torch.ones_like(mask), mask_sum)
-    masked_mean = (x * mask).sum(-1, keepdim=True) / mask_sum
-    # diff = masked_mean - mean_x
-
-    # return mean_x + beta * diff
-
-    var = (x - masked_mean)**2
-    masked_var = (var * mask).sum(-1, keepdim=True) / mask_sum
-    std = torch.sqrt(masked_var)
-
-    return mean_x + beta * std
-
-
-class MGPGAgent(A2CAgent):
-    def __init__(self, args, name='MGPG'):
+class GMACAgent(A2CAgent):
+    def __init__(self, args, name='GMAC'):
         super().__init__(args, name)
         # Define constants
         self.vf_coef = self.args.vf_coef
@@ -87,18 +51,11 @@ class MGPGAgent(A2CAgent):
                 ac_space = (self.env.action_space.low,
                             self.env.action_space.high)
                 ac_space = None
-            model = MGAC(input_shape, n_actions, disc=self.disc, ac=ac_space,
+            model = GMAC(input_shape, n_actions, disc=self.disc, ac=ac_space,
                          min_var=self.min_sig**2)
 
         model = model.to(args.device)
         self.policy = model
-        if hasattr(model, 'ivalue_head'):
-            self.intrinsic = True
-            self.keys.append('irews')
-            self.buffer['irews'] = []
-            self.i_rms = ReturnFilter(self.gam, clip=5.0)
-        else:
-            self.intrinsic = False
 
         # Add value distribution to the buffer
         self.keys.append('vdists')
@@ -143,14 +100,6 @@ class MGPGAgent(A2CAgent):
         with torch.no_grad():
             _, val_dist = self.policy(obs, **kwargs)
         vals = val_dist.mean
-        if hasattr(self.buffer['vdists'][0], 'auxs'):
-            intrinsic = True
-            igae = 0
-            # iadvs = torch.zeros_like(self.buffer['vdists'][0].auxs[0].mean)
-            _ivals = val_dist.auxs[0].mean
-            irews = torch.exp(val_dist.entropy())
-        else:
-            intrinsic = False
         next_mus, next_sigs = val_dist.sample_param(self.n_sample)
 
         size = (self.update_step, self.args.num_workers, self.n_sample)
@@ -169,9 +118,6 @@ class MGPGAgent(A2CAgent):
             rews = self.buffer['rews'][t]
             while len(rews.shape) < len(vals.shape):
                 rews = rews.unsqueeze(1)
-            # Maximum entropy learning
-            # ent = 0.01 * self.buffer['vdists'][t].entropy()
-            # rews += ent
 
             next_mus *= _nont * self.gam
             next_mus += rews
@@ -186,7 +132,6 @@ class MGPGAgent(A2CAgent):
             # Probability of next state
             pi = torch.exp(-self.buffer['nlps'][t])
             probs = self.lam * torch.ones_like(pi)
-            # probs = (pi / (1 + pi))
             dist = Bernoulli(probs=probs)
             mask = dist.sample((self.n_sample,)).to(vals)
             mask = mask.transpose(0, 1).squeeze(-1)
@@ -194,19 +139,9 @@ class MGPGAgent(A2CAgent):
             next_sigs += (1 - mask) * (curr_sigs - next_sigs)
 
             vals = self.buffer['vals'][t]
-            # rews = rews + 0.001 * self.buffer['acdists'][t].entropy()
             delta = rews + _nont * self.gam * _vals - vals
             gae = delta + _nont * self.gam * self.lam * gae
             advs[t] = gae
-
-            if intrinsic:
-                ivals = self.buffer['vdists'][t].auxs[0].mean
-                irews = self.i_rms.filter(irews) * _nont
-                delta = irews + _nont * self.gam * _ivals - ivals
-                igae = delta + _nont * self.gam * self.lam * igae
-                advs[t] = advs[t] + 0.5 * igae
-                irews = torch.exp(self.buffer['vdists'][t].entropy())
-                _ivals = ivals
 
         return rets_mus.detach(), rets_sigs.detach(), advs.detach()
 
@@ -225,22 +160,8 @@ class MGPGAgent(A2CAgent):
         self.info.update('Values/VEntropy', vent.item())
         self.info.update('Values/WEntropy', went.item())
 
-        # rets = Normal(self.buffer['ret_mus'][idx],
-        #               self.buffer['ret_sigs'][idx]).sample()
         _rets = self.buffer['rets'][idx]
-        # rets = truncated(_rets, beta=0.5)
-        use_adv = True
-        if use_adv:
-            advs = self.buffer['advs'][idx]
-        else:
-            ltm = lt_mean(
-                self.buffer['ret_mus'][idx],
-                torch.clamp(self.buffer['ret_sigs'][idx], min=self.min_sig),
-                1.0 / self.n_sample * torch.ones_like(_rets))
-            # tar = self.buffer['ret_mus'][idx].mean(-1, keepdim=True)
-            src = self.buffer['vals'][idx]
-            advs = (ltm - src).detach()
-        # advs = logmod(advs).detach()
+        advs = self.buffer['advs'][idx]
         advs = (advs - advs.mean()) / (advs.std() + 1e-6)
         self.info.update('Values/Adv', advs.max().item())
 
@@ -250,10 +171,6 @@ class MGPGAgent(A2CAgent):
                          self.buffer['ret_mus'][idx],
                          self.buffer['ret_sigs'][idx],
                          1 / self.n_sample * torch.ones_like(_rets)).mean()
-        #                  torch.clamp(self.buffer['ret_sigs'][idx],
-        #                              min=self.min_sig),
-        # vf_loss = sample_cramer(val_dist.rsample(self.n_sample),
-        #                         _rets).mean()
         self.info.update('Loss/Value', vf_loss.item())
 
         # Policy gradient with clipped ratio
@@ -380,126 +297,3 @@ class MGPGAgent(A2CAgent):
                 self.step * self.args.num_workers,
                 tag='PDF/Target'
             )
-
-
-class M2CAgent(MGPGAgent):
-    def __init__(self, args, name='M2C'):
-        super().__init__(args, name)
-        # Define optimizer
-        self.optim = torch.optim.RMSprop(
-            self.policy.parameters(),
-            lr=args.lr
-        )
-
-    def compute_loss(self, idx):
-        # Compute action distributions
-        obs = self.buffer['obs'][idx]
-        acs = self.buffer['acs'][idx]
-        ac_dist, val_dist = self.policy(obs)
-        vals = val_dist.sample(self.n_sample)
-        nlps = -ac_dist.log_prob(acs)
-        ent = ac_dist.entropy().mean()
-        vent = val_dist.entropy().mean()
-        went = Categorical(probs=val_dist.w).entropy().mean()
-        self.info.update('Values/Value', vals.mean().item())
-        self.info.update('Values/Entropy', ent.item())
-        self.info.update('Values/VEntropy', vent.item())
-        self.info.update('Values/WEntropy', went.item())
-
-        _rets = self.buffer['rets'][idx]
-        advs = self.buffer['advs'][idx]
-        self.info.update('Values/Adv', advs.max().item())
-
-        vf_loss = Cramer(
-            val_dist.loc,
-            val_dist.scale,
-            val_dist.w,
-            self.buffer['ret_mus'][idx],
-            self.buffer['ret_sigs'][idx],
-            1 / self.n_sample * torch.ones_like(_rets)
-        ).mean()
-        self.info.update('Loss/Value', vf_loss.item())
-
-        # Policy gradient according to advantage
-        pg_loss = (advs.detach() * nlps.unsqueeze(-1)).mean()
-        self.info.update('Loss/Policy', pg_loss.item())
-
-        # Total loss
-        loss = pg_loss - self.ent_coef * ent + self.vf_coef * vf_loss
-        self.info.update('Loss/Total', loss.item())
-        self.graph_dict = {
-            'vals': vals[:20].detach().cpu().numpy(),
-            'rets': _rets[:20].detach().cpu().numpy(),
-        }
-        return loss
-
-
-class MCKTRAgent(MGPGAgent):
-    def __init__(self, args, name='MCKTR'):
-        super().__init__(args, name)
-        # Define optimizer
-        self.optim = KFACOptimizer(
-            self.policy,
-            lr=args.lr
-        )
-
-    def compute_loss(self, idx):
-        # Compute action distributions
-        obs = self.buffer['obs'][idx]
-        acs = self.buffer['acs'][idx]
-        ac_dist, val_dist = self.policy(obs)
-        vals = val_dist.sample(self.n_sample)
-        nlps = -ac_dist.log_prob(acs)
-        ent = ac_dist.entropy().mean()
-        vent = val_dist.entropy().mean()
-        went = Categorical(probs=val_dist.w).entropy().mean()
-        self.info.update('Values/Value', vals.mean().item())
-        self.info.update('Values/Entropy', ent.item())
-        self.info.update('Values/VEntropy', vent.item())
-        self.info.update('Values/WEntropy', went.item())
-
-        _rets = self.buffer['rets'][idx]
-        advs = self.buffer['advs'][idx]
-        self.info.update('Values/Adv', advs.max().item())
-
-        vf_loss = Cramer(
-            val_dist.loc,
-            val_dist.scale,
-            val_dist.w,
-            self.buffer['ret_mus'][idx],
-            self.buffer['ret_sigs'][idx],
-            1 / self.n_sample * torch.ones_like(_rets)
-        ).mean()
-        self.info.update('Loss/Value', vf_loss.item())
-
-        # Policy gradient according to advantage
-        pg_loss = (advs.detach() * nlps.unsqueeze(-1)).mean()
-        self.info.update('Loss/Policy', pg_loss.item())
-
-        # Compute gradient from Fisher matrix
-        if self.optim.steps % self.optim.TCov == 0:
-            self.policy.zero_grad()
-            pg_fisher = -nlps.mean()
-            vf_fisher = -Cramer(
-                val_dist.loc,
-                val_dist.scale,
-                val_dist.w,
-                vals,
-                torch.ones_like(vals) * 5e-2,
-                1 / vals.size(1) * torch.ones_like(vals)
-            ).mean()
-            fisher_loss = pg_fisher + vf_fisher
-
-            self.optim.acc_stats = True
-            fisher_loss.backward(retain_graph=True)
-            self.optim.acc_stats = False
-
-        # Total loss
-        loss = pg_loss - self.ent_coef * ent + self.vf_coef * vf_loss
-        self.info.update('Loss/Total', loss.item())
-        self.graph_dict = {
-            'vals': vals[:20].detach().cpu().numpy(),
-            'rets': _rets[:20].detach().cpu().numpy(),
-        }
-
-        return loss

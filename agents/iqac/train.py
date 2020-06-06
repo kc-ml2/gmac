@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.distributions.bernoulli import Bernoulli
 import settings
 from agents.a2c.train import A2CAgent
-from agents.iqpg.network import IQPGActorCritic
+from agents.iqpg.network import IQACActorCritic
 from utils.common import load_model, save_model, safemean
 from utils.summary import EvaluationMetrics
 from utils.loss import sample_cramer
@@ -18,15 +18,15 @@ matplotlib.use('Agg')
 sns.set(style="white", palette="muted", color_codes=True)
 
 
-__all__ = ['IQPGAgent', 'EIQPGAgent']
+__all__ = ['IQACAgent', 'IQACEAgent']
 
 
 def logmod(x):
     return torch.sign(x) * torch.log(x.abs() + 1.0)
 
 
-class IQPGAgent(A2CAgent):
-    def __init__(self, args, name='IQPG'):
+class IQACAgent(A2CAgent):
+    def __init__(self, args, name='IQAC'):
         super().__init__(args, name)
         # Define constants
         self.vf_coef = self.args.vf_coef
@@ -51,7 +51,7 @@ class IQPGAgent(A2CAgent):
             else:
                 n_actions = len(self.env.action_space.sample())
             ac_space = None
-            model = IQPGActorCritic(input_shape, n_actions,
+            model = IQACActorCritic(input_shape, n_actions,
                                     self.n_quantiles, disc=self.disc,
                                     ac=ac_space, min_var=self.min_sig**2)
 
@@ -93,7 +93,6 @@ class IQPGAgent(A2CAgent):
         diff = target.unsqueeze(2) - input.unsqueeze(1)
         taus = quantiles.unsqueeze(-1).unsqueeze(1)
         taus = taus.expand(-1, n_quantiles, -1, -1)
-        # loss = diff.pow(2) * (taus - (diff < 0).float()).abs()
         huber = self.huber(input.unsqueeze(1), target.unsqueeze(2))
         loss = huber * (taus - (diff < 0).float()).abs()
         return loss.squeeze(3).sum(-1).mean(-1)
@@ -126,9 +125,6 @@ class IQPGAgent(A2CAgent):
             rews = self.buffer['rews'][t]
             while len(rews.shape) < len(vals.shape):
                 rews = rews.unsqueeze(1)
-            # Maximum entropy learning
-            # ent = 0.01 * self.buffer['vdists'][t].entropy()
-            # rews += ent
 
             next_vals *= _nont * self.gam
             next_vals += rews
@@ -144,7 +140,6 @@ class IQPGAgent(A2CAgent):
             next_vals += (1 - mask) * (curr_vals - next_vals)
 
             vals = self.buffer['vals'][t].mean(-1, keepdim=True)
-            # ent = 0.001 * self.buffer['acdists'][t].entropy()
             delta = rews + _nont * self.gam * _vals - vals
             gae = delta + _nont * self.gam * self.lam * gae
             advs[t] = gae
@@ -154,7 +149,7 @@ class IQPGAgent(A2CAgent):
     def compute_loss(self, idx):
         # Compute action distributions
         obs = self.buffer['obs'][idx]
-        acs = self.buffer['acs'][idx]  #.long()
+        acs = self.buffer['acs'][idx]
         # taus = self.buffer['taus'][idx]
         taus = torch.rand(obs.size(0), self.n_quantiles)
         taus = taus.to(self.args.device)
@@ -167,12 +162,10 @@ class IQPGAgent(A2CAgent):
 
         rets = self.buffer['rets'][idx].unsqueeze(-1)
         advs = self.buffer['advs'][idx]
-        # advs = logmod(advs).detach()
-        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+        advs = (advs - advs.mean()) / (advs.std() + settings.eps)
         self.info.update('Values/Adv', advs.max().item())
 
         vf_loss = self.huber_quantile_loss(vals, rets, taus)
-        # vf_loss = sample_cramer(vals.squeeze(-1), rets.squeeze(-1))
         vf_loss = vf_loss.mean()
         self.info.update('Loss/Value', vf_loss.item())
 
@@ -294,8 +287,8 @@ class IQPGAgent(A2CAgent):
             )
 
 
-class EIQPGAgent(IQPGAgent):
-    def __init__(self, args, name='EIQPG'):
+class IQACEAgent(IQACAgent):
+    def __init__(self, args, name='IQACE'):
         super().__init__(args, name)
 
     def compute_loss(self, idx):
