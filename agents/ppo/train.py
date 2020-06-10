@@ -14,11 +14,9 @@ class PPOAgent(A2CAgent):
         self.ent_coef = self.args.ent_coef
         self.cliprange = self.args.cliprange
         self.max_grad = 0.5
-        # self.max_grad = 10.0
         self.clip_value = True
 
         # Define optimizer
-        # self.optim = torch.optim.RMSprop(
         self.optim = torch.optim.Adam(
             self.policy.parameters(),
             lr=args.lr,
@@ -38,17 +36,14 @@ class PPOAgent(A2CAgent):
 
         advs = self.buffer['advs'][idx].detach()
         rets = self.buffer['vals'][idx] + advs
-        # FIXME: logmod applied
         advs = (advs - advs.mean()) / (advs.std() + settings.EPS)
-        # advs = torch.sign(advs) * torch.log(advs.abs() + 1.0)
         self.info.update('Values/Adv', advs.max().item())
 
         if self.clip_value:
             old_vals = self.buffer['vals'][idx]
-            vals_clipped = (old_vals
-                            + torch.clamp(vals - old_vals,
-                                          -self.cliprange,
-                                          self.cliprange))
+            vals_clipped = (old_vals + torch.clamp(vals - old_vals,
+                                                   -self.cliprange,
+                                                   self.cliprange))
             vf_loss_clipped = 0.5 * (vals_clipped - rets.detach()).pow(2)
             vf_loss = 0.5 * (vals - rets.detach()).pow(2)
             vf_loss = torch.max(vf_loss, vf_loss_clipped).mean()

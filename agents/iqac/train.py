@@ -9,7 +9,6 @@ from agents.a2c.train import A2CAgent
 from agents.iqpg.network import IQACActorCritic
 from utils.common import load_model, save_model, safemean
 from utils.summary import EvaluationMetrics
-from utils.loss import sample_cramer
 
 import matplotlib
 import matplotlib.pyplot as plt
@@ -19,10 +18,6 @@ sns.set(style="white", palette="muted", color_codes=True)
 
 
 __all__ = ['IQACAgent', 'IQACEAgent']
-
-
-def logmod(x):
-    return torch.sign(x) * torch.log(x.abs() + 1.0)
 
 
 class IQACAgent(A2CAgent):
@@ -98,10 +93,13 @@ class IQACAgent(A2CAgent):
         return loss.squeeze(3).sum(-1).mean(-1)
 
     def compute_returns(self, **kwargs):
+        # Generalized Advantage Estimate
         gae = 0
         advs = torch.zeros(*self.buffer['vals'].shape[:-1],
                            1).to(self.args.device)
         dones = torch.from_numpy(self.dones).to(self.args.device)
+
+        # Look one step further
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))
@@ -126,6 +124,7 @@ class IQACAgent(A2CAgent):
             while len(rews.shape) < len(vals.shape):
                 rews = rews.unsqueeze(1)
 
+            # Bellman operator on samples
             next_vals *= _nont * self.gam
             next_vals += rews
 
@@ -133,6 +132,7 @@ class IQACAgent(A2CAgent):
 
             curr_vals = self.buffer['vals'][t]
 
+            # Replace samples
             probs = self.lam * torch.ones_like(self.buffer['nlps'][t])
             dist = Bernoulli(probs=probs)
             mask = dist.sample((self.n_quantiles,)).to(vals)
@@ -162,7 +162,7 @@ class IQACAgent(A2CAgent):
 
         rets = self.buffer['rets'][idx].unsqueeze(-1)
         advs = self.buffer['advs'][idx]
-        advs = (advs - advs.mean()) / (advs.std() + settings.eps)
+        advs = (advs - advs.mean()) / (advs.std() + settings.EPS)
         self.info.update('Values/Adv', advs.max().item())
 
         vf_loss = self.huber_quantile_loss(vals, rets, taus)
@@ -305,7 +305,7 @@ class IQACEAgent(IQACAgent):
         self.info.update('Values/Entropy', ent.item())
 
         advs = self.buffer['advs'][idx]
-        advs = (advs - advs.mean()) / (advs.std() + 1e-8)
+        advs = (advs - advs.mean()) / (advs.std() + settings.EPS)
         self.info.update('Values/Adv', advs.max().item())
 
         # Energy distance

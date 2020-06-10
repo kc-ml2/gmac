@@ -116,8 +116,6 @@ class A2CAgent:
         self.buffer['dones'].append(dones)
 
         self.obs, rews, self.dones, infos = self.env.step(acs)
-        # FIXME: only for maximum entropy objective
-        # rews += 0.001 * ents
         if self.video_flag:
             self.video_summary()
 
@@ -155,6 +153,8 @@ class A2CAgent:
         gae = 0
         advs = torch.zeros_like(self.buffer['vals'])
         dones = torch.from_numpy(self.dones).to(self.args.device)
+
+        # Look one more frame further
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))

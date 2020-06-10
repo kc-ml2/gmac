@@ -28,7 +28,6 @@ class GMACAgent(A2CAgent):
         self.vf_coef = self.args.vf_coef
         self.ent_coef = self.args.ent_coef
         self.cliprange = self.args.cliprange
-        # self.max_grad = None
         self.max_grad = 5.0
 
         self.n_sample = 128
@@ -64,7 +63,6 @@ class GMACAgent(A2CAgent):
         self.buffer['acdists'] = []
 
         # Define optimizer
-        # self.optim = torch.optim.RMSprop(
         self.optim = torch.optim.Adam(
             self.policy.parameters(),
             lr=args.lr,
@@ -90,9 +88,12 @@ class GMACAgent(A2CAgent):
         )
 
     def compute_returns(self, **kwargs):
+        # General Advantage Estimate
         gae = 0
         advs = torch.zeros_like(self.buffer['vals'])
         dones = torch.from_numpy(self.dones).to(self.args.device)
+
+        # Look one step further
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))
@@ -102,6 +103,7 @@ class GMACAgent(A2CAgent):
         vals = val_dist.mean
         next_mus, next_sigs = val_dist.sample_param(self.n_sample)
 
+        # Init parameter samples
         size = (self.update_step, self.args.num_workers, self.n_sample)
         rets_mus = torch.zeros(*size).to(vals)
         rets_sigs = torch.zeros(*size).to(vals)
@@ -119,6 +121,7 @@ class GMACAgent(A2CAgent):
             while len(rews.shape) < len(vals.shape):
                 rews = rews.unsqueeze(1)
 
+            # Bellman operator on samples
             next_mus *= _nont * self.gam
             next_mus += rews
             next_sigs *= _nont * self.gam
@@ -129,15 +132,15 @@ class GMACAgent(A2CAgent):
             curr_val_dist = self.buffer['vdists'][t]
             curr_mus, curr_sigs = curr_val_dist.sample_param(self.n_sample)
 
-            # Probability of next state
-            pi = torch.exp(-self.buffer['nlps'][t])
-            probs = self.lam * torch.ones_like(pi)
+            # Replace samples
+            probs = self.lam * torch.ones_like(self.buffer['nlps'][t])
             dist = Bernoulli(probs=probs)
             mask = dist.sample((self.n_sample,)).to(vals)
             mask = mask.transpose(0, 1).squeeze(-1)
             next_mus += (1 - mask) * (curr_mus - next_mus)
             next_sigs += (1 - mask) * (curr_sigs - next_sigs)
 
+            # Calculate advantage
             vals = self.buffer['vals'][t]
             delta = rews + _nont * self.gam * _vals - vals
             gae = delta + _nont * self.gam * self.lam * gae
@@ -162,7 +165,7 @@ class GMACAgent(A2CAgent):
 
         _rets = self.buffer['rets'][idx]
         advs = self.buffer['advs'][idx]
-        advs = (advs - advs.mean()) / (advs.std() + 1e-6)
+        advs = (advs - advs.mean()) / (advs.std() + settings.EPS)
         self.info.update('Values/Adv', advs.max().item())
 
         vf_loss = Cramer(val_dist.loc,
