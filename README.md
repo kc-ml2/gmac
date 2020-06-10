@@ -14,6 +14,7 @@ python setup.py install
 ```
 Then, install openai baselines from 
 https://github.com/openai/baselines
+[[commit that was used](https://github.com/openai/baselines/tree/ea25b9e8b234e6ee1bca43083f8f3cf974143998)]
 
 
 ---
