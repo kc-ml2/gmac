@@ -204,7 +204,6 @@ class DiagGaussianDist(torch.distributions.Normal):
                          / (2.0 * other.var) - 0.5, dim=-1)
 
 
-# TODO: implement mixture of gaussian
 class MixtureGaussianDist(torch.distributions.Normal):
     def __init__(self, loc, scale, w):
         super().__init__(loc, scale)
@@ -217,7 +216,6 @@ class MixtureGaussianDist(torch.distributions.Normal):
         sig_sample = torch.gather(self.scale, -1, i_sample)
         return mu_sample, sig_sample
 
-    # TODO: implement rsample to be used in entropy
     def sample(self, n_sample=1, clip=False):
         mu_sample, sig_sample = self.sample_param(n_sample)
         noise = torch.randn_like(mu_sample)
@@ -240,8 +238,6 @@ class MixtureGaussianDist(torch.distributions.Normal):
         return logprob.sum(-1)
 
     def entropy(self):
-        # TODO: find a good estimate for entorpy of gaussian mixture
-        # return a sample based entorpy estimation
         samples = self.sample(n_sample=64)
         ent = HNA(samples)
         return ent
