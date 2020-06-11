@@ -12,9 +12,6 @@ setup(
         'pillow',
         'gym',
         'gym[atari]',
-        'sklearn',
-        'psutil',
-        'ray',
         'pybullet',
         'seaborn',
         'mpi4py'
