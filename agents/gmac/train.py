@@ -200,10 +200,6 @@ class GMACAgent(A2CAgent):
         self.step += 1
 
         ac_dist, val_dist = self.collect(**kwargs)
-        if self.intrinsic:
-            irew = torch.exp(val_dist.entropy())
-            self.i_rms.update(irew.detach(), torch.from_numpy(
-                self.buffer['dones'][-1]).to(irew))
         self.buffer['vdists'].append(val_dist)
         self.buffer['acdists'].append(ac_dist)
         if self.step % self.update_step == 0:

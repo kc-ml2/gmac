@@ -6,7 +6,7 @@ import torch.nn as nn
 from torch.distributions.bernoulli import Bernoulli
 import settings
 from agents.a2c.train import A2CAgent
-from agents.iqpg.network import IQACActorCritic
+from agents.iqac.network import IQACActorCritic
 from utils.common import load_model, save_model, safemean
 from utils.summary import EvaluationMetrics
 

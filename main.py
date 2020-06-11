@@ -55,15 +55,15 @@ def ppo(args):
     train(args, 'PPOAgent', 'ppo')
 
 
-def iqpg(args):
+def iqac(args):
     train(args, 'IQACAgent', 'iqac')
 
 
-def iqpg_energy(args):
-    train(args, 'IQACEAgent', 'iqace')
+def iqace(args):
+    train(args, 'IQACEAgent', 'iqac')
 
 
-def mogpg(args):
+def gmac(args):
     train(args, 'GMACAgent', 'gmac')
 
 

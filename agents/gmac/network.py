@@ -1,4 +1,4 @@
-fom utils.distributions import (CategoricalHead, MixtureGaussianHead,
+from utils.distributions import (CategoricalHead, MixtureGaussianHead,
                                  DiagGaussianHead, ScalarHead, MixedDist)
 from agents.a2c.network import ActorCritic, MLP
 

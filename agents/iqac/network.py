@@ -6,7 +6,7 @@ from utils.distributions import CategoricalHead, DiagGaussianHead, SampleHead
 from agents.a2c.network import ActorCritic, MLP
 
 
-class IQPGActorCritic(ActorCritic):
+class IQACActorCritic(ActorCritic):
     def __init__(self, input_shape, n_actions, n_quantiles,
                  hidden_dim=256, quantile_dim=64, disc=True, sep=False,
                  min_var=0.0, **kwargs):
