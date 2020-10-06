@@ -20,5 +20,5 @@ https://github.com/openai/baselines
 ---
 Sample command for running GMAC on atari breakout
 ```
-python main.py --mode=gmac --env=atari --env_id=breakout --tag=test_run
+python main.py --mode=gmac --env=atari --env_id=Breakout --tag=test_run
 ```
