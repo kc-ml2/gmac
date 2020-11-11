@@ -80,7 +80,7 @@ class MixtureGaussianHead(nn.Module):
 
     def forward(self, x):
         mus = self.linear1(x)
-        sigs = torch.sqrt(F.softplus(self.linear2(x)) + self.min_var)
+        sigs = torch.sqrt(self.min_var * F.softplus(self.linear2(x)) + self.min_var)
         ws = torch.exp(F.log_softmax(self.linear3(x), dim=-1))
         dist = MixtureGaussianDist(mus, sigs, ws)
         return dist
